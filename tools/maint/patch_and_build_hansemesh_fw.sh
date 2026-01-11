@@ -43,14 +43,18 @@ echo "-------------------------------------------------"
 # ./tools/maint/apply_patches.sh 1199 1338 1297
 
 # build all repeater firmwares, the will be in .out
-# FIRMWARE_VERSION="v1.11_hansemesh_special" ./build.sh build-repeater-firmwares
+FIRMWARE_VERSION="v1.11_evo" ./build.sh build-repeater-firmwares
 
 # build single firmwares
-FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware ProMicro_repeater
-FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware RAK_4631_repeater
-FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware heltec_v4_repeater
-FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware Heltec_v3_repeater
-collect_bin_files
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware ProMicro_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware RAK_4631_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware heltec_v4_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware Heltec_v3_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware Xiao_nrf52_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware LilyGo_T3S3_sx1262_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware Heltec_t114_without_display_repeater
+#FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware Heltec_t114_repeater
+#collect_bin_files
 
 
 echo "-------------------- Build end ------------------"
