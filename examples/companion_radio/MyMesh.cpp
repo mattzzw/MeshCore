@@ -54,6 +54,8 @@
 #define CMD_SEND_CONTROL_DATA         55   // v8+
 #define CMD_GET_STATS                 56   // v8+, second byte is stats type
 #define CMD_SEND_ANON_REQ             57
+#define CMD_SET_AUTOADD_CONFIG        58
+#define CMD_GET_AUTOADD_CONFIG        59
 
 // Stats sub-types for CMD_GET_STATS
 #define STATS_TYPE_CORE               0
@@ -85,6 +87,7 @@
 #define RESP_CODE_ADVERT_PATH         22
 #define RESP_CODE_TUNING_PARAMS       23
 #define RESP_CODE_STATS               24   // v8+, second byte is stats type
+#define RESP_CODE_AUTOADD_CONFIG      25
 
 #define SEND_TIMEOUT_BASE_MILLIS        500
 #define FLOOD_SEND_TIMEOUT_FACTOR       16.0f
@@ -110,6 +113,8 @@
 #define PUSH_CODE_BINARY_RESPONSE       0x8C
 #define PUSH_CODE_PATH_DISCOVERY_RESPONSE 0x8D
 #define PUSH_CODE_CONTROL_DATA          0x8E   // v8+
+#define PUSH_CODE_CONTACT_DELETED       0x8F // used to notify client app of deleted contact when overwriting oldest
+#define PUSH_CODE_CONTACTS_FULL         0x90 // used to notify client app that contacts storage is full
 
 #define ERR_CODE_UNSUPPORTED_CMD        1
 #define ERR_CODE_NOT_FOUND              2
@@ -119,6 +124,15 @@
 #define ERR_CODE_ILLEGAL_ARG            6
 
 #define MAX_SIGN_DATA_LEN               (8 * 1024) // 8K
+
+// Auto-add config bitmask
+// Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
+// Bits 1-4: these indicate which contact types to auto-add when manual_contact_mode = 0x01
+#define AUTO_ADD_OVERWRITE_OLDEST (1 << 0)  // 0x01 - overwrite oldest non-favourite when full
+#define AUTO_ADD_CHAT             (1 << 1)  // 0x02 - auto-add Chat (Companion) (ADV_TYPE_CHAT)
+#define AUTO_ADD_REPEATER         (1 << 2)  // 0x04 - auto-add Repeater (ADV_TYPE_REPEATER)
+#define AUTO_ADD_ROOM_SERVER      (1 << 3)  // 0x08 - auto-add Room Server (ADV_TYPE_ROOM)
+#define AUTO_ADD_SENSOR           (1 << 4)  // 0x10 - auto-add Sensor (ADV_TYPE_SENSOR)
 
 void MyMesh::writeOKFrame() {
   uint8_t buf[1];
@@ -262,9 +276,54 @@ bool MyMesh::isAutoAddEnabled() const {
   return (_prefs.manual_add_contacts & 1) == 0;
 }
 
+bool MyMesh::shouldAutoAddContactType(uint8_t contact_type) const {
+  if ((_prefs.manual_add_contacts & 1) == 0) {
+    return true;
+  }
+  
+  uint8_t type_bit = 0;
+  switch (contact_type) {
+    case ADV_TYPE_CHAT:
+      type_bit = AUTO_ADD_CHAT;
+      break;
+    case ADV_TYPE_REPEATER:
+      type_bit = AUTO_ADD_REPEATER;
+      break;
+    case ADV_TYPE_ROOM:
+      type_bit = AUTO_ADD_ROOM_SERVER;
+      break;
+    case ADV_TYPE_SENSOR:
+      type_bit = AUTO_ADD_SENSOR;
+      break;
+    default:
+      return false;  // Unknown type, don't auto-add
+  }
+  
+  return (_prefs.autoadd_config & type_bit) != 0;
+}
+
+bool MyMesh::shouldOverwriteWhenFull() const {
+  return (_prefs.autoadd_config & AUTO_ADD_OVERWRITE_OLDEST) != 0;
+}
+
+void MyMesh::onContactOverwrite(const uint8_t* pub_key) {
+  if (_serial->isConnected()) {
+    out_frame[0] = PUSH_CODE_CONTACT_DELETED;
+    memcpy(&out_frame[1], pub_key, PUB_KEY_SIZE);
+    _serial->writeFrame(out_frame, 1 + PUB_KEY_SIZE);
+  }
+}
+
+void MyMesh::onContactsFull() {
+  if (_serial->isConnected()) {
+    out_frame[0] = PUSH_CODE_CONTACTS_FULL;
+    _serial->writeFrame(out_frame, 1);
+  }
+}
+
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
   if (_serial->isConnected()) {
-    if (!isAutoAddEnabled() && is_new) {
+    if (!shouldAutoAddContactType(contact.type) && is_new) {
       writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact);
     } else {
       out_frame[0] = PUSH_CODE_ADVERT;
@@ -803,6 +862,7 @@ void MyMesh::begin(bool has_display) {
 
   resetContacts();
   _store->loadContacts(this);
+  bootstrapRTCfromContacts();
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure Andy's public channel
   _store->loadChannels(this);
 
@@ -1663,6 +1723,15 @@ void MyMesh::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_TABLE_FULL);
     }
+  } else if (cmd_frame[0] == CMD_SET_AUTOADD_CONFIG) {
+    _prefs.autoadd_config = cmd_frame[1];
+    savePrefs();
+    writeOKFrame();  
+  } else if (cmd_frame[0] == CMD_GET_AUTOADD_CONFIG) {
+    int i = 0;
+    out_frame[i++] = RESP_CODE_AUTOADD_CONFIG;
+    out_frame[i++] = _prefs.autoadd_config;
+    _serial->writeFrame(out_frame, i);
   } else {
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
     MESH_DEBUG_PRINTLN("ERROR: unknown command: %02X", cmd_frame[0]);
