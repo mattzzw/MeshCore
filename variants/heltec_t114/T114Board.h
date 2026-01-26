@@ -10,6 +10,11 @@
 #define  MV_LSB   (3000.0F / 4096.0F) // 12-bit ADC with 3.0V input range
 
 class T114Board : public NRF52BoardOTA {
+protected:
+#ifdef NRF52_POWER_MANAGEMENT
+  void initiateShutdown(uint8_t reason) override;
+#endif
+
 public:
     T114Board() : NRF52BoardOTA("T114_OTA") {}
   void begin();
@@ -42,13 +47,13 @@ public:
   }
 
   void powerOff() override {
-    #ifdef LED_PIN
+#ifdef LED_PIN
     digitalWrite(LED_PIN, HIGH);
-    #endif
-    #if ENV_INCLUDE_GPS == 1
+#endif
+#if ENV_INCLUDE_GPS == 1
     pinMode(GPS_EN, OUTPUT);
     digitalWrite(GPS_EN, LOW);
-    #endif
+#endif
     sd_power_system_off();
   }
 };

@@ -30,6 +30,11 @@
 #define  ADC_MULTIPLIER   (3 * 1.73 * 1.187 * 1000)
 
 class RAK4631Board : public NRF52BoardDCDC, public NRF52BoardOTA {
+protected:
+#ifdef NRF52_POWER_MANAGEMENT
+  void initiateShutdown(uint8_t reason) override;
+#endif
+
 public:
   RAK4631Board() : NRF52BoardOTA("RAK4631_OTA") {}
   void begin();
