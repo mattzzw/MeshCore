@@ -6,14 +6,14 @@
 
 #ifdef XIAO_NRF52
 
-class XiaoNrf52Board : public NRF52BoardDCDC, public NRF52BoardOTA { 
+class XiaoNrf52Board : public NRF52BoardDCDC {
 protected:
 #if NRF52_POWER_MANAGEMENT
   void initiateShutdown(uint8_t reason) override;
 #endif
 
 public:
-  XiaoNrf52Board() : NRF52BoardOTA("XIAO_NRF52_OTA") {}
+  XiaoNrf52Board() : NRF52Board("XIAO_NRF52_OTA") {}
   void begin();
 
 #if defined(P_LORA_TX_LED)

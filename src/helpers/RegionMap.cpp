@@ -2,6 +2,45 @@
 #include <helpers/TxtDataHelpers.h>
 #include <SHA256.h>
 
+// helper class for region map exporter, we emulate Stream with a safe buffer writer.
+
+class BufStream : public Stream {
+public:
+  BufStream(char *buf, size_t max_len)
+    : _buf(buf), _max_len(max_len), _pos(0) {
+    if (_max_len > 0) _buf[0] = 0;
+  }
+
+  size_t write(uint8_t c) override {
+    if (_pos + 1 >= _max_len) return 0;
+    _buf[_pos++] = c;
+    _buf[_pos] = 0;
+    return 1;
+  }
+
+  size_t write(const uint8_t *buffer, size_t size) override {
+    size_t written = 0;
+    while (written < size) {
+      if (!write(buffer[written])) break;
+      written++;
+    }
+    return written;
+  }
+
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+
+  size_t length() const { return _pos; }
+
+private:
+  char *_buf;
+  size_t _max_len;
+  size_t _pos;
+};
+
+
 RegionMap::RegionMap(TransportKeyStore& store) : _store(&store) {
   next_id = 1; num_regions = 0; home_id = 0;
   wildcard.id = wildcard.parent = 0;
@@ -249,25 +288,40 @@ void RegionMap::exportTo(Stream& out) const {
   printChildRegions(0, &wildcard, out);   // recursive
 }
 
-int RegionMap::exportNamesTo(char *dest, int max_len, uint8_t mask) {
+size_t RegionMap::exportTo(char *dest, size_t max_len) const {
+  if (!dest || max_len == 0) return 0;
+
+  BufStream bs(dest, max_len);
+  exportTo(bs);              // ← reuse existing logic
+  return bs.length();
+}
+
+int RegionMap::exportNamesTo(char *dest, int max_len, uint8_t mask, bool invert) {
   char *dp = dest;
-  if ((wildcard.flags & mask) == 0) {
+  
+  // Check wildcard region
+  bool wildcard_matches = invert ? (wildcard.flags & mask) : !(wildcard.flags & mask);
+  if (wildcard_matches) {
     *dp++ = '*';
     *dp++ = ',';
   }
 
-  for (int i = 0; i < num_regions; i++) {
+    for (int i = 0; i < num_regions; i++) {
     auto region = &regions[i];
-    if ((region->flags & mask) == 0) {   // region allowed? (per 'mask' param)
-      const char* name = skip_hash(region->name);
-      int len = strlen(name);
+    
+    // Check if region matches the filter criteria
+    bool region_matches = invert ? (region->flags & mask) : !(region->flags & mask);
+    
+    if (region_matches) {
+      int len = strlen(skip_hash(region->name));
       if ((dp - dest) + len + 2 < max_len) {   // only append if name will fit
-        memcpy(dp, name, len);
+        memcpy(dp, skip_hash(region->name), len);
         dp += len;
         *dp++ = ',';
       }
     }
   }
+
   if (dp > dest) { dp--; }   // don't include trailing comma
 
   *dp = 0;  // set null terminator

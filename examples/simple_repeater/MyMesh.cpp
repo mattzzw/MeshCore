@@ -1072,8 +1072,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
 
     const char* parts[4];
     int n = mesh::Utils::parseTextParts(command, parts, 4, ' ');
-    if (n == 1 && sender_timestamp == 0) {
-      region_map.exportTo(Serial);
+    if (n == 1) {
+      region_map.exportTo(reply, 160);
     } else if (n >= 2 && strcmp(parts[1], "load") == 0) {
       temp_map.resetFrom(region_map);   // rebuild regions in a temp instance
       memset(load_stack, 0, sizeof(load_stack));
@@ -1145,6 +1145,25 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
         }
       } else {
         strcpy(reply, "Err - not found");
+      }
+    } else if (n >= 3 && strcmp(parts[1], "list") == 0) {
+      uint8_t mask = 0;
+      bool invert = false;
+      
+      if (strcmp(parts[2], "allowed") == 0) {
+        mask = REGION_DENY_FLOOD;
+        invert = false;  // list regions that DON'T have DENY flag
+      } else if (strcmp(parts[2], "denied") == 0) {
+        mask = REGION_DENY_FLOOD;
+        invert = true;   // list regions that DO have DENY flag
+      } else {
+        strcpy(reply, "Err - use 'allowed' or 'denied'");
+        return;
+      }
+      
+      int len = region_map.exportNamesTo(reply, 160, mask, invert);
+      if (len == 0) {
+        strcpy(reply, "-none-");
       }
     } else {
       strcpy(reply, "Err - ??");
