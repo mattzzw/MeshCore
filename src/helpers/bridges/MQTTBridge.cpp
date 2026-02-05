@@ -179,7 +179,39 @@ MQTTBridge::MQTTBridge(NodePrefs *prefs, mesh::PacketManager *mgr, mesh::RTCCloc
 
 void MQTTBridge::begin() {
   MQTT_DEBUG_PRINTLN("Initializing MQTT Bridge...");
-  
+
+  // PSRAM diagnostic - helps debug memory fragmentation on boards with external RAM
+  #ifdef BOARD_HAS_PSRAM
+  {
+    bool psram_available = psramFound();
+    size_t psram_size = 0;
+    size_t psram_free = 0;
+    if (psram_available) {
+      psram_size = ESP.getPsramSize();
+      psram_free = ESP.getFreePsram();
+    }
+    MQTT_DEBUG_PRINTLN("PSRAM: found=%s, size=%u, free=%u",
+      psram_available ? "YES" : "NO", psram_size, psram_free);
+    if (!psram_available) {
+      MQTT_DEBUG_PRINTLN("PSRAM: board has PSRAM flag but psramFound()=false. "
+        "Trying explicit psramInit()...");
+      bool init_result = psramInit();
+      MQTT_DEBUG_PRINTLN("PSRAM: psramInit() returned %s", init_result ? "true" : "false");
+      if (init_result) {
+        psram_size = ESP.getPsramSize();
+        psram_free = ESP.getFreePsram();
+        MQTT_DEBUG_PRINTLN("PSRAM: after init - size=%u, free=%u", psram_size, psram_free);
+      }
+    }
+    // Log internal heap for comparison
+    MQTT_DEBUG_PRINTLN("PSRAM: internal_free=%u, internal_max_alloc=%u",
+      heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  }
+  #else
+  MQTT_DEBUG_PRINTLN("PSRAM: not configured for this board (no BOARD_HAS_PSRAM)");
+  #endif
+
   // Check if WiFi credentials are configured first
   if (!isWiFiConfigValid(_prefs)) {
     MQTT_DEBUG_PRINTLN("MQTT Bridge initialization skipped - WiFi credentials not configured");
