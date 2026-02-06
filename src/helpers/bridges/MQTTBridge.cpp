@@ -2575,8 +2575,12 @@ void MQTTBridge::maintainAnalyzerConnections() {
     return;
   }
   
-  // Check NTP sync status - JWT tokens require valid timestamps
-  if (!_ntp_synced) {
+  // JWT tokens require valid timestamps. Allow if NTP sync flag is set, or if system clock
+  // is clearly set (e.g. not firmware default 2024) so we don't block reconnection after
+  // a successful NTP sync at boot when _ntp_synced might be wrong.
+  unsigned long clock_sec = time(nullptr);
+  bool clock_looks_set = (clock_sec >= 1735689600);  // 2025-01-01 00:00:00 UTC
+  if (!_ntp_synced && !clock_looks_set) {
     return;
   }
   
