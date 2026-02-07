@@ -2889,15 +2889,46 @@ void MQTTBridge::syncTimeWithNTP() {
   }
   #endif
   
-  // Begin NTP client
-  _ntp_client.begin();
+  bool ntp_ok = false;
+  unsigned long epochTime = 0;
+  const unsigned long kMinValidEpoch = 1704067200;  // 2024-01-01 00:00:00 UTC
   
-  // Force update (blocking call with timeout)
-  if (_ntp_client.forceUpdate()) {
-    unsigned long epochTime = _ntp_client.getEpochTime();
-    
-    // Set system timezone to UTC first
-    // This ensures time() returns UTC time
+  // Begin NTP client and try forceUpdate with retries (helps on some boards e.g. Heltec V3)
+  _ntp_client.begin();
+  const int kMaxNtpRetries = 3;
+  for (int attempt = 1; attempt <= kMaxNtpRetries && !ntp_ok; attempt++) {
+    if (attempt > 1) {
+      MQTT_DEBUG_PRINTLN("NTP retry %d/%d...", attempt, kMaxNtpRetries);
+      delay(1000);
+    }
+    if (_ntp_client.forceUpdate()) {
+      epochTime = _ntp_client.getEpochTime();
+      if (epochTime >= kMinValidEpoch) {
+        ntp_ok = true;
+      }
+    }
+  }
+  _ntp_client.end();
+  
+  // Fallback: use ESP32 built-in SNTP (configTime) when NTPClient fails
+  #ifdef ESP_PLATFORM
+  if (!ntp_ok) {
+    MQTT_DEBUG_PRINTLN("NTP client failed, trying SNTP fallback...");
+    configTime(0, 0, "pool.ntp.org");
+    for (int i = 0; i < 20; i++) {
+      delay(500);
+      epochTime = (unsigned long)time(nullptr);
+      if (epochTime >= kMinValidEpoch) {
+        ntp_ok = true;
+        MQTT_DEBUG_PRINTLN("SNTP fallback succeeded: %lu", epochTime);
+        break;
+      }
+    }
+  }
+  #endif
+  
+  if (ntp_ok) {
+    // Set system timezone to UTC (idempotent; SNTP fallback already uses pool.ntp.org)
     configTime(0, 0, "pool.ntp.org");
     
     // Update the device's RTC clock with UTC time (if available)
@@ -2905,12 +2936,10 @@ void MQTTBridge::syncTimeWithNTP() {
       _rtc->setCurrentTime(epochTime);
     }
     
-    // Mark NTP as synced regardless of RTC availability
-    // JWT tokens need valid time, which is now available via time()
     bool was_ntp_synced = _ntp_synced;
     _ntp_synced = true;
     _last_ntp_sync = millis();
-    sync_in_progress = false;  // Clear sync flag
+    sync_in_progress = false;
     
     MQTT_DEBUG_PRINTLN("Time synced: %lu", epochTime);
     
@@ -2918,7 +2947,6 @@ void MQTTBridge::syncTimeWithNTP() {
       unsigned long current_time = time(nullptr);
       unsigned long expires_in = 86400; // 24 hours
       
-      // If tokens were created before NTP sync (expires_at == 0), set expiration times now
       if (_analyzer_us_enabled && _token_us_expires_at == 0 && _auth_token_us && strlen(_auth_token_us) > 0) {
         _token_us_expires_at = current_time + expires_in;
         MQTT_DEBUG_PRINTLN("US token expiration set after NTP sync: %lu", _token_us_expires_at);
@@ -2928,7 +2956,6 @@ void MQTTBridge::syncTimeWithNTP() {
         _token_eu_expires_at = current_time + expires_in;
       }
       
-      // If tokens don't exist yet (deferred during begin()), create them now
       if ((_analyzer_us_enabled || _analyzer_eu_enabled) && 
           ((!_auth_token_us || strlen(_auth_token_us) == 0) && (!_auth_token_eu || strlen(_auth_token_eu) == 0))) {
         if (createAuthToken()) {
@@ -2950,42 +2977,30 @@ void MQTTBridge::syncTimeWithNTP() {
       }
     }
     
-    sync_in_progress = false;  // Clear sync flag on failure too
-    
     // Set timezone from string (with DST support) - only if changed
     static char last_timezone[64] = "";
     if (strcmp(_prefs->timezone_string, last_timezone) != 0) {
-      // Clean up old timezone object to prevent memory leak
       if (_timezone) {
         delete _timezone;
         _timezone = nullptr;
       }
-      
-      // Create timezone object based on timezone string
       Timezone* tz = createTimezoneFromString(_prefs->timezone_string);
       if (tz) {
         _timezone = tz;
       } else {
-        // Create UTC timezone as fallback
         TimeChangeRule utc = {"UTC", Last, Sun, Mar, 0, 0};
         _timezone = new Timezone(utc, utc);
       }
-      
       strncpy(last_timezone, _prefs->timezone_string, sizeof(last_timezone) - 1);
       last_timezone[sizeof(last_timezone) - 1] = '\0';
     }
     
-    // Get current time info
-    struct tm* utc_timeinfo = gmtime((time_t*)&epochTime);
-    struct tm* local_timeinfo = localtime((time_t*)&epochTime);
-    (void)utc_timeinfo; // Unused but kept for debugging if needed
-    (void)local_timeinfo;
+    (void)gmtime((time_t*)&epochTime);
+    (void)localtime((time_t*)&epochTime);
   } else {
     MQTT_DEBUG_PRINTLN("NTP sync failed");
-    sync_in_progress = false;  // Clear sync flag on failure
+    sync_in_progress = false;
   }
-  
-  _ntp_client.end();
 }
 
 Timezone* MQTTBridge::createTimezoneFromString(const char* tz_string) {
