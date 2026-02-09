@@ -3,7 +3,7 @@
 export PATH="$HOME/.platformio/penv/bin:$PATH"
 
 LOGFILE="$PWD/meshcore-evo-fw.log"
-FIRMWARE_VERSION="v1.11.0-evo_0.1.3"
+FIRMWARE_VERSION="v1.12.0-evo_0.1.6"
 FIRMWARE_BUILD_DATE=$(date '+%d-%b-%Y')
 
 collect_bin_files(){
@@ -43,7 +43,7 @@ echo "-------------------------------------------------"
 # ./tools/maint/apply_patches.sh 1199 1338 1297
 
 # build all repeater firmwares, the will be in .out
-FIRMWARE_VERSION="v1.11_evo" ./build.sh build-repeater-firmwares
+FIRMWARE_VERSION=$FIRMWARE_VERSION ./build.sh build-repeater-firmwares
 
 # build single firmwares
 #FIRMWARE_VERSION=$FIRMWARE_VERSION FIRMWARE_BUILD_DATE=$FIRMWARE_BUILD_DATE ./build.sh build-firmware ProMicro_repeater
