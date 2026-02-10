@@ -7,6 +7,7 @@ sh build.sh <command> [target]
 
 Commands:
   help|usage|-h|--help: Shows this message.
+  list|-l: List firmwares available to build.
   build-firmware <target>: Build the firmware for the given build target.
   build-firmwares: Build all firmwares for all targets.
   build-matching-firmwares <build-match-spec>: Build all firmwares for build targets containing the string given for <build-match-spec>.
@@ -46,19 +47,23 @@ $ sh build.sh build-firmware RAK_4631_repeater
 EOF
 }
 
+# get a list of pio env names that start with "env:"
+get_pio_envs() {
+  pio project config | grep 'env:' | sed 's/env://'
+}
+
 # Catch cries for help before doing anything else.
 case $1 in
   help|usage|-h|--help)
     global_usage
     exit 1
     ;;
+  list|-l)
+    get_pio_envs
+    exit 0
+    ;;
 esac
 
-
-# get a list of pio env names that start with "env:"
-get_pio_envs() {
-  echo $(pio project config | grep 'env:' | sed 's/env://')
-}
 
 # $1 should be the string to find (case insensitive)
 get_pio_envs_containing_string() {
