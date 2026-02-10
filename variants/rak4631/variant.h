@@ -106,7 +106,7 @@ extern "C"
 
 // Power management boot protection threshold (millivolts)
 // Set to 0 to disable boot protection
-#define PWRMGT_VOLTAGE_BOOTLOCK 3300   // Won't boot below this voltage (mV)
+#define PWRMGT_VOLTAGE_BOOTLOCK 3100   // Won't boot below this voltage (mV)
 // LPCOMP wake configuration (voltage recovery from SYSTEMOFF)
 // AIN3 = P0.05 = PIN_A0 / PIN_VBAT_READ
 #define PWRMGT_LPCOMP_AIN 3
