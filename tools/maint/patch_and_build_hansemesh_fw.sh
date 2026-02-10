@@ -3,7 +3,7 @@
 export PATH="$HOME/.platformio/penv/bin:$PATH"
 
 LOGFILE="$PWD/meshcore-evo-fw.log"
-FIRMWARE_VERSION="v1.12.0-evo_0.1.6"
+FIRMWARE_VERSION="v1.12.0-evo_0.1.7"
 FIRMWARE_BUILD_DATE=$(date '+%d-%b-%Y')
 
 collect_bin_files(){
