@@ -1,3 +1,18 @@
+
+## About MeshCore-Evo
+
+This is a friendly fork of the MeshCore project. 
+Its aim is to provide repeater firmwares with a few additional pending upstream PRs/improvements (i.e. PRs/improvements that are available to the MeshCore project but have not yet been merged in the upstream repo or PRs that might never be merged upstream for some reason).
+These changes are intended to help mitigating challenges in big or dense meshes, e.g.:
+
+- Dealing with flood advert traffic
+- fixing TX duty cycle on a rolling window basis
+- improving `denyf *` handling
+
+This list might change any time.
+
+
+
 ## About MeshCore
 
 MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
