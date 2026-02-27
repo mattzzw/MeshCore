@@ -10,6 +10,7 @@ These changes are intended to help mitigating challenges in big or dense meshes,
 - improving `denyf *` handling
 
 This list might change any time.
+Refer to the [release notes](https://github.com/mattzzw/MeshCore-Evo/releases) for an up-to-date list of the applied changes.
 
 
 
