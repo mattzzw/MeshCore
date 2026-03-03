@@ -44,7 +44,63 @@ static bool isWiFiConfigValid(const NodePrefs* prefs) {
   return true;
 }
 
+#ifdef ESP_PLATFORM
+static const char* mqttConnAckToString(int code) {
+  switch (code) {
+    case 0: return "accepted";
+    case 1: return "unacceptable_protocol_version";
+    case 2: return "identifier_rejected";
+    case 3: return "server_unavailable";
+    case 4: return "bad_username_or_password";
+    case 5: return "not_authorized";
+    default: return "unknown";
+  }
+}
+
+static void logMainMqttError(const esp_mqtt_error_codes& error) {
+  MQTT_DEBUG_PRINTLN(
+    "Main broker error: type=%d, connack=%d(%s), tls_esp=0x%x, tls_stack=0x%x, sock_errno=%d",
+    error.error_type,
+    error.connect_return_code,
+    mqttConnAckToString(error.connect_return_code),
+    (unsigned int)error.esp_tls_last_esp_err,
+    (unsigned int)error.esp_tls_stack_err,
+    error.esp_transport_sock_errno
+  );
+}
+#endif
+
 #ifdef WITH_MQTT_BRIDGE
+
+// Let's Encrypt / ISRG Root X1 used by mqtt.anchel.nl certificate chain
+static const char* ISRG_ROOT_X1 =
+    "-----BEGIN CERTIFICATE-----\n"
+    "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\n"
+    "m+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n"
+    "-----END CERTIFICATE-----\n";
 
 // PSRAM-aware allocation: prefer PSRAM on ESP32 when BOARD_HAS_PSRAM, fallback to internal heap or malloc.
 // Use psram_free() for any pointer returned by psram_malloc().
@@ -360,6 +416,11 @@ void MQTTBridge::begin() {
         }
       }
     });
+#ifdef ESP_PLATFORM
+    _mqtt_client->onError([this](esp_mqtt_error_codes error) {
+      logMainMqttError(error);
+    });
+#endif
   }
   
   // Set default broker from preferences or build flags
@@ -449,6 +510,11 @@ void MQTTBridge::begin() {
         }
       }
     });
+#ifdef ESP_PLATFORM
+    _mqtt_client->onError([this](esp_mqtt_error_codes error) {
+      logMainMqttError(error);
+    });
+#endif
   }
   
   setBroker(0, _prefs->mqtt_server, _prefs->mqtt_port, _prefs->mqtt_username, _prefs->mqtt_password, true);
@@ -1128,6 +1194,11 @@ void MQTTBridge::ensureMainMqttClient() {
       }
     }
   });
+#ifdef ESP_PLATFORM
+  _mqtt_client->onError([this](esp_mqtt_error_codes error) {
+    logMainMqttError(error);
+  });
+#endif
   MQTT_DEBUG_PRINTLN("Main MQTT client recreated (fresh buffers)");
 }
 
@@ -1271,12 +1342,22 @@ void MQTTBridge::connectToBrokers() {
     // If we forced disconnect (e.g. on publish failure), we must call connect() again
     // since disconnect() stops the client; use exponential backoff to avoid reconnect storms.
     if (!_brokers[i].initial_connect_done) {
-      MQTT_DEBUG_PRINTLN("Initial connection to broker %d: %s:%d", i, _brokers[i].host, _brokers[i].port);
+      MQTT_DEBUG_PRINTLN("Initial connection to broker %d: %s:%d (tls=%s)", i, _brokers[i].host, _brokers[i].port,
+                         _prefs->mqtt_use_tls ? "on" : "off");
 
       // Set broker URI and connect using PsychicMqttClient API
       char broker_uri[128];
-      snprintf(broker_uri, sizeof(broker_uri), "mqtt://%s:%d", _brokers[i].host, _brokers[i].port);
+      snprintf(broker_uri, sizeof(broker_uri), "%s://%s:%d",
+               _prefs->mqtt_use_tls ? "mqtts" : "mqtt", _brokers[i].host, _brokers[i].port);
       _mqtt_client->setServer(broker_uri);
+      MQTT_DEBUG_PRINTLN("Main broker URI: %s", broker_uri);
+      // Ensure TLS trust is configured for custom mqtts:// brokers.
+      // Analyzer clients use explicit CA certs; main broker should use the built-in bundle.
+      if (_prefs->mqtt_use_tls) {
+        _mqtt_client->setCACert(ISRG_ROOT_X1);
+      } else {
+        _mqtt_client->attachArduinoCACertBundle(false);
+      }
 
       // Set credentials if provided
       if (strlen(_brokers[i].username) > 0) {
@@ -1298,10 +1379,18 @@ void MQTTBridge::connectToBrokers() {
       unsigned int idx = (_main_broker_reconnect_backoff_attempt < 5) ? _main_broker_reconnect_backoff_attempt : 4;
       unsigned long delay_ms = MAIN_BROKER_BACKOFF_MS[idx];
       if (reconnect_elapsed >= delay_ms) {
-        MQTT_DEBUG_PRINTLN("Reconnecting to broker %d: %s:%d (backoff)", i, _brokers[i].host, _brokers[i].port);
+        MQTT_DEBUG_PRINTLN("Reconnecting to broker %d: %s:%d (backoff, tls=%s)", i, _brokers[i].host, _brokers[i].port,
+                           _prefs->mqtt_use_tls ? "on" : "off");
         char broker_uri[128];
-        snprintf(broker_uri, sizeof(broker_uri), "mqtt://%s:%d", _brokers[i].host, _brokers[i].port);
+        snprintf(broker_uri, sizeof(broker_uri), "%s://%s:%d",
+                 _prefs->mqtt_use_tls ? "mqtts" : "mqtt", _brokers[i].host, _brokers[i].port);
         _mqtt_client->setServer(broker_uri);
+        MQTT_DEBUG_PRINTLN("Main broker URI: %s", broker_uri);
+        if (_prefs->mqtt_use_tls) {
+          _mqtt_client->setCACert(ISRG_ROOT_X1);
+        } else {
+          _mqtt_client->attachArduinoCACertBundle(false);
+        }
         if (strlen(_brokers[i].username) > 0) {
           _mqtt_client->setCredentials(_brokers[i].username, _brokers[i].password);
         }
@@ -1579,7 +1668,8 @@ bool MQTTBridge::publishStatus() {
                   
                   // Build broker URI
                   char broker_uri[128];
-                  snprintf(broker_uri, sizeof(broker_uri), "mqtt://%s:%d", _brokers[i].host, _brokers[i].port);
+                  snprintf(broker_uri, sizeof(broker_uri), "%s://%s:%d",
+                           _prefs->mqtt_use_tls ? "mqtts" : "mqtt", _brokers[i].host, _brokers[i].port);
                   
                   // Only call setServer() if broker URI changed (reduces memory allocations)
                   if (strcmp(broker_uri, last_broker_uri_shared) != 0) {
@@ -1599,7 +1689,8 @@ bool MQTTBridge::publishStatus() {
                     static unsigned long last_status_publish_fail_log = 0;
                     unsigned long now = millis();
                     if (now - last_status_publish_fail_log > 60000) {
-                      MQTT_DEBUG_PRINTLN("Status publish failed (result=%d), failures=%d%s", publish_result, s_consecutive_main_publish_failures,
+                      MQTT_DEBUG_PRINTLN("Status publish failed: topic=%s uri=%s len=%u result=%d failures=%d%s",
+                                        topic, broker_uri, (unsigned)json_len, publish_result, s_consecutive_main_publish_failures,
                                         should_disconnect ? ", forcing reconnect" : "");
                       last_status_publish_fail_log = now;
                     }
@@ -1754,7 +1845,8 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
         if (_brokers[i].enabled && _brokers[i].connected && _mqtt_client->connected()) {
           // Build broker URI
           char broker_uri[128];
-          snprintf(broker_uri, sizeof(broker_uri), "mqtt://%s:%d", _brokers[i].host, _brokers[i].port);
+          snprintf(broker_uri, sizeof(broker_uri), "%s://%s:%d",
+                   _prefs->mqtt_use_tls ? "mqtts" : "mqtt", _brokers[i].host, _brokers[i].port);
           
           // Only call setServer() if broker URI changed (reduces memory allocations)
           if (strcmp(broker_uri, last_broker_uri) != 0) {
@@ -1775,7 +1867,8 @@ void MQTTBridge::publishPacket(mesh::Packet* packet, bool is_tx,
             static unsigned long last_publish_fail_log = 0;
             unsigned long now = millis();
             if (now - last_publish_fail_log > 60000) {
-              MQTT_DEBUG_PRINTLN("Publish failed (result=%d), failures=%d%s", publish_result, s_consecutive_main_publish_failures,
+              MQTT_DEBUG_PRINTLN("Packet publish failed: topic=%s uri=%s len=%u result=%d failures=%d%s",
+                                topic, broker_uri, (unsigned)json_len, publish_result, s_consecutive_main_publish_failures,
                                 should_disconnect ? ", forcing reconnect" : "");
               last_publish_fail_log = now;
             }
@@ -1880,7 +1973,8 @@ void MQTTBridge::publishRaw(mesh::Packet* packet) {
         if (_brokers[i].enabled && _brokers[i].connected && _mqtt_client->connected()) {
           // Build broker URI
           char broker_uri[128];
-          snprintf(broker_uri, sizeof(broker_uri), "mqtt://%s:%d", _brokers[i].host, _brokers[i].port);
+          snprintf(broker_uri, sizeof(broker_uri), "%s://%s:%d",
+                   _prefs->mqtt_use_tls ? "mqtts" : "mqtt", _brokers[i].host, _brokers[i].port);
           
           // Only call setServer() if broker URI changed (reduces memory allocations)
           if (strcmp(broker_uri, last_broker_uri_raw) != 0) {
@@ -1899,7 +1993,8 @@ void MQTTBridge::publishRaw(mesh::Packet* packet) {
             static unsigned long last_raw_publish_fail_log = 0;
             unsigned long now = millis();
             if (now - last_raw_publish_fail_log > 60000) {
-              MQTT_DEBUG_PRINTLN("Raw publish failed (result=%d), failures=%d%s", publish_result, s_consecutive_main_publish_failures,
+              MQTT_DEBUG_PRINTLN("Raw publish failed: topic=%s uri=%s len=%u result=%d failures=%d%s",
+                                topic, broker_uri, (unsigned)json_len, publish_result, s_consecutive_main_publish_failures,
                                 should_disconnect ? ", forcing reconnect" : "");
               last_raw_publish_fail_log = now;
             }
@@ -3173,4 +3268,3 @@ void MQTTBridge::logMemoryStatus() {
 }
 
 #endif
-

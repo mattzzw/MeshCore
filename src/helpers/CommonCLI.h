@@ -74,6 +74,7 @@ struct NodePrefs { // persisted to file
   // MQTT server settings
   char mqtt_server[64];     // MQTT server hostname
   uint16_t mqtt_port;       // MQTT server port
+  uint8_t mqtt_use_tls;     // MQTT transport security: 0=mqtt://, 1=mqtts://
   char mqtt_username[32];   // MQTT username
   char mqtt_password[64];   // MQTT password
   
@@ -108,6 +109,7 @@ struct MQTTPrefs {
   // MQTT server settings
   char mqtt_server[64];     // MQTT server hostname
   uint16_t mqtt_port;       // MQTT server port
+  uint8_t mqtt_use_tls;     // MQTT transport security: 0=mqtt://, 1=mqtts://
   char mqtt_username[32];   // MQTT username
   char mqtt_password[64];   // MQTT password
   
