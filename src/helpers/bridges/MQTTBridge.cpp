@@ -72,7 +72,7 @@ static void logMainMqttError(const esp_mqtt_error_codes& error) {
 
 #ifdef WITH_MQTT_BRIDGE
 
-// Let's Encrypt / ISRG Root X1 used by mqtt.anchel.nl certificate chain
+// Let's Encrypt / ISRG Root X1 used for custom TLS MQTT broker validation
 static const char* ISRG_ROOT_X1 =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAwTzELMAkGA1UE\n"
