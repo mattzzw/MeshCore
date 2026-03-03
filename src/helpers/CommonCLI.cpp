@@ -19,7 +19,7 @@ static size_t getMQTTFieldsSize(const NodePrefs* prefs) {
          sizeof(prefs->mqtt_status_interval) + sizeof(prefs->wifi_ssid) +
          sizeof(prefs->wifi_password) + sizeof(prefs->timezone_string) +
          sizeof(prefs->timezone_offset) + sizeof(prefs->mqtt_server) +
-         sizeof(prefs->mqtt_port) + sizeof(prefs->mqtt_username) +
+         sizeof(prefs->mqtt_port) + sizeof(prefs->mqtt_use_tls) + sizeof(prefs->mqtt_username) +
          sizeof(prefs->mqtt_password) + sizeof(prefs->mqtt_analyzer_us_enabled) +
          sizeof(prefs->mqtt_analyzer_eu_enabled) + sizeof(prefs->mqtt_owner_public_key) +
          sizeof(prefs->mqtt_email);
@@ -143,7 +143,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
       sizeof(_prefs->mqtt_status_interval) + sizeof(_prefs->wifi_ssid) +
       sizeof(_prefs->wifi_password) + sizeof(_prefs->timezone_string) +
       sizeof(_prefs->timezone_offset) + sizeof(_prefs->mqtt_server) +
-      sizeof(_prefs->mqtt_port) + sizeof(_prefs->mqtt_username) +
+      sizeof(_prefs->mqtt_port) + sizeof(_prefs->mqtt_use_tls) + sizeof(_prefs->mqtt_username) +
       sizeof(_prefs->mqtt_password) + sizeof(_prefs->mqtt_analyzer_us_enabled) +
       sizeof(_prefs->mqtt_analyzer_eu_enabled) + sizeof(_prefs->mqtt_owner_public_key) +
       sizeof(_prefs->mqtt_email);
@@ -253,7 +253,7 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
       sizeof(_prefs->mqtt_status_interval) + sizeof(_prefs->wifi_ssid) +
       sizeof(_prefs->wifi_password) + sizeof(_prefs->timezone_string) +
       sizeof(_prefs->timezone_offset) + sizeof(_prefs->mqtt_server) +
-      sizeof(_prefs->mqtt_port) + sizeof(_prefs->mqtt_username) +
+      sizeof(_prefs->mqtt_port) + sizeof(_prefs->mqtt_use_tls) + sizeof(_prefs->mqtt_username) +
       sizeof(_prefs->mqtt_password) + sizeof(_prefs->mqtt_analyzer_us_enabled) +
       sizeof(_prefs->mqtt_analyzer_eu_enabled) + sizeof(_prefs->mqtt_owner_public_key) +
       sizeof(_prefs->mqtt_email);
@@ -285,6 +285,7 @@ static void setMQTTPrefsDefaults(MQTTPrefs* prefs) {
   prefs->mqtt_raw_enabled = 0;       // disabled by default
   prefs->mqtt_tx_enabled = 0;        // disabled by default (RX only)
   prefs->mqtt_status_interval = 300000; // 5 minutes default
+  prefs->mqtt_use_tls = 0;           // disabled by default (mqtt://)
   prefs->mqtt_analyzer_us_enabled = 1; // enabled by default
   prefs->mqtt_analyzer_eu_enabled = 1; // enabled by default
   #ifdef MQTT_WIFI_POWER_SAVE_DEFAULT
@@ -308,16 +309,16 @@ void CommonCLI::loadMQTTPrefs(FILESYSTEM* fs) {
     File file = fs->open("/mqtt_prefs");
 #endif
     if (file) {
-      // Verify file size is correct before reading
-      if (file.size() >= sizeof(_mqtt_prefs)) {
-        size_t bytes_read = file.read((uint8_t *)&_mqtt_prefs, sizeof(_mqtt_prefs));
-        if (bytes_read != sizeof(_mqtt_prefs)) {
+      // Backward compatible load: keep defaults, then overlay what exists on disk.
+      // This supports older /mqtt_prefs files when struct fields are added.
+      size_t to_read = file.size();
+      if (to_read > sizeof(_mqtt_prefs)) to_read = sizeof(_mqtt_prefs);
+      if (to_read > 0) {
+        size_t bytes_read = file.read((uint8_t *)&_mqtt_prefs, to_read);
+        if (bytes_read != to_read) {
           // File read incomplete - reinitialize to defaults
           setMQTTPrefsDefaults(&_mqtt_prefs);
         }
-      } else {
-        // File too small - reinitialize to defaults
-        setMQTTPrefsDefaults(&_mqtt_prefs);
       }
       file.close();
     }
@@ -405,6 +406,7 @@ void CommonCLI::syncMQTTPrefsToNodePrefs() {
   _prefs->timezone_offset = _mqtt_prefs.timezone_offset;
   StrHelper::strncpy(_prefs->mqtt_server, _mqtt_prefs.mqtt_server, sizeof(_prefs->mqtt_server));
   _prefs->mqtt_port = _mqtt_prefs.mqtt_port;
+  _prefs->mqtt_use_tls = _mqtt_prefs.mqtt_use_tls;
   StrHelper::strncpy(_prefs->mqtt_username, _mqtt_prefs.mqtt_username, sizeof(_prefs->mqtt_username));
   StrHelper::strncpy(_prefs->mqtt_password, _mqtt_prefs.mqtt_password, sizeof(_prefs->mqtt_password));
   _prefs->mqtt_analyzer_us_enabled = _mqtt_prefs.mqtt_analyzer_us_enabled;
@@ -430,6 +432,7 @@ void CommonCLI::syncNodePrefsToMQTTPrefs() {
   _mqtt_prefs.timezone_offset = _prefs->timezone_offset;
   StrHelper::strncpy(_mqtt_prefs.mqtt_server, _prefs->mqtt_server, sizeof(_mqtt_prefs.mqtt_server));
   _mqtt_prefs.mqtt_port = _prefs->mqtt_port;
+  _mqtt_prefs.mqtt_use_tls = _prefs->mqtt_use_tls;
   StrHelper::strncpy(_mqtt_prefs.mqtt_username, _prefs->mqtt_username, sizeof(_mqtt_prefs.mqtt_username));
   StrHelper::strncpy(_mqtt_prefs.mqtt_password, _prefs->mqtt_password, sizeof(_mqtt_prefs.mqtt_password));
   _mqtt_prefs.mqtt_analyzer_us_enabled = _prefs->mqtt_analyzer_us_enabled;
@@ -662,6 +665,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         sprintf(reply, "> %s", _prefs->mqtt_server);
       } else if (memcmp(config, "mqtt.port", 9) == 0) {
         sprintf(reply, "> %d", _prefs->mqtt_port);
+      } else if (memcmp(config, "mqtt.use_tls", 12) == 0) {
+        sprintf(reply, "> %s", _prefs->mqtt_use_tls ? "on" : "off");
       } else if (memcmp(config, "mqtt.username", 13) == 0) {
         sprintf(reply, "> %s", _prefs->mqtt_username);
       } else if (memcmp(config, "mqtt.password", 13) == 0) {
@@ -1113,6 +1118,19 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
                   strcpy(reply, "OK");
                 } else {
                   strcpy(reply, "Error: port must be between 1 and 65535");
+                }
+              } else if (memcmp(config, "mqtt.use_tls ", 13) == 0) {
+                const char* value = &config[13];
+                if (memcmp(value, "on", 2) == 0 || memcmp(value, "1", 1) == 0 || memcmp(value, "true", 4) == 0) {
+                  _prefs->mqtt_use_tls = 1;
+                  savePrefs();
+                  strcpy(reply, "OK");
+                } else if (memcmp(value, "off", 3) == 0 || memcmp(value, "0", 1) == 0 || memcmp(value, "false", 5) == 0) {
+                  _prefs->mqtt_use_tls = 0;
+                  savePrefs();
+                  strcpy(reply, "OK");
+                } else {
+                  strcpy(reply, "Error: use on|off");
                 }
               } else if (memcmp(config, "mqtt.username ", 14) == 0) {
                 StrHelper::strncpy(_prefs->mqtt_username, &config[14], sizeof(_prefs->mqtt_username));
