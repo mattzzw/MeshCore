@@ -73,13 +73,15 @@ void MyMesh::pushPostToClient(ClientInfo *client, PostInfo &post) {
 
   auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, client->shared_secret, reply_data, len);
   if (reply) {
-    if (client->out_path_len < 0) {
-      sendFlood(reply);
+    if (client->out_path_len == OUT_PATH_UNKNOWN) {
+      unsigned long delay_millis = 0;
+      sendFlood(reply, delay_millis, _prefs.path_hash_mode + 1);
       client->extra.room.ack_timeout = futureMillis(PUSH_ACK_TIMEOUT_FLOOD);
     } else {
       sendDirect(reply, client->out_path, client->out_path_len);
-      client->extra.room.ack_timeout =
-          futureMillis(PUSH_TIMEOUT_BASE + PUSH_ACK_TIMEOUT_FACTOR * (client->out_path_len + 1));
+
+      uint8_t path_hash_count = client->out_path_len & 63;
+      client->extra.room.ack_timeout = futureMillis(PUSH_TIMEOUT_BASE + PUSH_ACK_TIMEOUT_FACTOR * (path_hash_count + 1));
     }
     _num_post_pushes++; // stats
   } else {
@@ -198,9 +200,23 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
   mesh::Utils::printHex(Serial, raw, len);
   Serial.println();
 #endif
+
+#ifdef WITH_MQTT_BRIDGE
+  if (_prefs.bridge_enabled) {
+    // Store raw radio data for MQTT messages (same as repeater)
+    bridge.storeRawRadioData(raw, len, snr, rssi);
+  }
+#endif
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+#ifdef WITH_MQTT_BRIDGE
+  if (_prefs.bridge_enabled && _prefs.bridge_pkt_src == 1) {
+    // Log received packets to MQTT (same as repeater)
+    bridge.onPacketReceived(pkt);
+  }
+#endif
+
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
@@ -220,6 +236,13 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
   }
 }
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
+#ifdef WITH_MQTT_BRIDGE
+  if (_prefs.bridge_enabled && _prefs.bridge_pkt_src == 0) {
+    // Log transmitted packets to MQTT (same as repeater)
+    bridge.sendPacket(pkt);
+  }
+#endif
+
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
@@ -264,17 +287,17 @@ const char *MyMesh::getLogDateTime() {
 }
 
 uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.tx_delay_factor);
+  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * _prefs.tx_delay_factor);
   return getRNG()->nextInt(0, 5*t + 1);
 }
 uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
+  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
 bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   if (_prefs.disable_fwd) return false;
-  if (packet->isRouteFlood() && packet->path_len >= _prefs.flood_max) return false;
+  if (packet->isRouteFlood() && packet->getPathHashCount() >= _prefs.flood_max) return false;
   return true;
 }
 
@@ -333,7 +356,7 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
     }
 
     if (packet->isRouteFlood()) {
-      client->out_path_len = -1;  // need to rediscover out_path
+      client->out_path_len = OUT_PATH_UNKNOWN;  // need to rediscover out_path
     }
 
     uint32_t now = getRTCClock()->getCurrentTimeUnique();
@@ -353,14 +376,14 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
       // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the response
       mesh::Packet *path = createPathReturn(sender, client->shared_secret, packet->path, packet->path_len,
                                             PAYLOAD_TYPE_RESPONSE, reply_data, 13);
-      if (path) sendFlood(path, SERVER_RESPONSE_DELAY);
+      if (path) sendFlood(path, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
     } else {
       mesh::Packet *reply = createDatagram(PAYLOAD_TYPE_RESPONSE, sender, client->shared_secret, reply_data, 13);
       if (reply) {
-        if (client->out_path_len >= 0) { // we have an out_path, so send DIRECT
+        if (client->out_path_len != OUT_PATH_UNKNOWN) { // we have an out_path, so send DIRECT
           sendDirect(reply, client->out_path, client->out_path_len, SERVER_RESPONSE_DELAY);
         } else {
-          sendFlood(reply, SERVER_RESPONSE_DELAY);
+          sendFlood(reply, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
         }
       }
     }
@@ -448,9 +471,9 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
 
       uint32_t delay_millis;
       if (send_ack) {
-        if (client->out_path_len < 0) {
+        if (client->out_path_len == OUT_PATH_UNKNOWN) {
           mesh::Packet *ack = createAck(ack_hash);
-          if (ack) sendFlood(ack, TXT_ACK_DELAY);
+          if (ack) sendFlood(ack, TXT_ACK_DELAY, packet->getPathHashSize());
           delay_millis = TXT_ACK_DELAY + REPLY_DELAY_MILLIS;
         } else {
           uint32_t d = TXT_ACK_DELAY;
@@ -482,8 +505,8 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
 
         auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
         if (reply) {
-          if (client->out_path_len < 0) {
-            sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY);
+          if (client->out_path_len == OUT_PATH_UNKNOWN) {
+            sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
           } else {
             sendDirect(reply, client->out_path, client->out_path_len, delay_millis + SERVER_RESPONSE_DELAY);
           }
@@ -521,7 +544,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         // if client sends too quickly, evict()
 
         // RULE: only send keep_alive response DIRECT!
-        if (client->out_path_len >= 0) {
+        if (client->out_path_len != OUT_PATH_UNKNOWN) {
           uint32_t ack_hash; // calc ACK to prove to sender that we got request
           mesh::Utils::sha256((uint8_t *)&ack_hash, 4, data, 9, client->id.pub_key, PUB_KEY_SIZE);
 
@@ -538,14 +561,14 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
             // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the response
             mesh::Packet *path = createPathReturn(client->id, secret, packet->path, packet->path_len,
                                                   PAYLOAD_TYPE_RESPONSE, reply_data, reply_len);
-            if (path) sendFlood(path, SERVER_RESPONSE_DELAY);
+            if (path) sendFlood(path, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
           } else {
             mesh::Packet *reply = createDatagram(PAYLOAD_TYPE_RESPONSE, client->id, secret, reply_data, reply_len);
             if (reply) {
-              if (client->out_path_len >= 0) { // we have an out_path, so send DIRECT
+              if (client->out_path_len != OUT_PATH_UNKNOWN) { // we have an out_path, so send DIRECT
                 sendDirect(reply, client->out_path, client->out_path_len, SERVER_RESPONSE_DELAY);
               } else {
-                sendFlood(reply, SERVER_RESPONSE_DELAY);
+                sendFlood(reply, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
               }
             }
           }
@@ -563,7 +586,7 @@ bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t 
   if (i >= 0 && i < acl.getNumClients()) { // get from our known_clients table (sender SHOULD already be known in this context)
     MESH_DEBUG_PRINTLN("PATH to client, path_len=%d", (uint32_t)path_len);
     auto client = acl.getClientByIdx(i);
-    memcpy(client->out_path, path, client->out_path_len = path_len); // store a copy of path, for sendDirect()
+    client->out_path_len = mesh::Packet::copyPath(client->out_path, path, path_len); // store a copy of path, for sendDirect()
     client->last_activity = getRTCClock()->getCurrentTime();
   } else {
     MESH_DEBUG_PRINTLN("onPeerPathRecv: invalid peer idx: %d", i);
@@ -587,7 +610,11 @@ void MyMesh::onAckRecv(mesh::Packet *packet, uint32_t ack_crc) {
 MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondClock &ms, mesh::RNG &rng,
                mesh::RTCClock &rtc, mesh::MeshTables &tables)
     : mesh::Mesh(radio, ms, rng, rtc, *new StaticPoolPacketManager(32), tables),
-      _cli(board, rtc, sensors, acl, &_prefs, this), telemetry(MAX_PACKET_PAYLOAD - 4) {
+      _cli(board, rtc, sensors, acl, &_prefs, this), telemetry(MAX_PACKET_PAYLOAD - 4)
+#ifdef WITH_MQTT_BRIDGE
+      , bridge(&_prefs, _mgr, &rtc, &self_id)
+#endif
+{
   last_millis = 0;
   uptime_millis = 0;
   next_local_advert = next_flood_advert = 0;
@@ -624,6 +651,34 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.gps_interval = 0;
   _prefs.advert_loc_policy = ADVERT_LOC_PREFS;
 
+  // bridge defaults (same as repeater)
+  _prefs.bridge_enabled = 1;    // enabled
+  _prefs.bridge_delay   = 500;  // milliseconds
+  _prefs.bridge_pkt_src = 1;    // logRx (RX packets)
+  _prefs.bridge_baud = 115200;  // baud rate
+  _prefs.bridge_channel = 1;    // channel 1
+
+  // MQTT defaults (same as repeater)
+  StrHelper::strncpy(_prefs.mqtt_origin, "MeshCore-RoomServer", sizeof(_prefs.mqtt_origin));
+  StrHelper::strncpy(_prefs.mqtt_iata, "SEA", sizeof(_prefs.mqtt_iata));
+  _prefs.mqtt_status_enabled = 1;    // enabled
+  _prefs.mqtt_packets_enabled = 1;   // enabled
+  _prefs.mqtt_raw_enabled = 0;       // disabled
+  _prefs.mqtt_tx_enabled = 0;        // disabled (RX only for now)
+  _prefs.mqtt_status_interval = 300000; // 5 minutes
+  
+  // WiFi defaults (same as repeater)
+  StrHelper::strncpy(_prefs.wifi_ssid, "ssid_here", sizeof(_prefs.wifi_ssid));
+  StrHelper::strncpy(_prefs.wifi_password, "password_here", sizeof(_prefs.wifi_password));
+  
+  // Timezone defaults (same as repeater - Pacific Time with DST support)
+  StrHelper::strncpy(_prefs.timezone_string, "America/Los_Angeles", sizeof(_prefs.timezone_string));
+  _prefs.timezone_offset = -8; // fallback
+  
+  // Let's Mesh Analyzer defaults (same as repeater - both enabled by default)
+  _prefs.mqtt_analyzer_us_enabled = 1; // enabled
+  _prefs.mqtt_analyzer_eu_enabled = 1; // enabled
+
   next_post_idx = 0;
   next_client_idx = 0;
   next_push = 0;
@@ -649,6 +704,41 @@ void MyMesh::begin(FILESYSTEM *fs) {
 
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
+#endif
+#ifdef WITH_MQTT_BRIDGE
+  // Ensure analyzer servers are enabled by default (in case no prefs were loaded) - same as repeater
+  if (_prefs.mqtt_analyzer_us_enabled == 0 && _prefs.mqtt_analyzer_eu_enabled == 0) {
+    _prefs.mqtt_analyzer_us_enabled = 1; // enabled
+    _prefs.mqtt_analyzer_eu_enabled = 1; // enabled
+    MESH_DEBUG_PRINTLN("Setting analyzer servers to enabled by default");
+  }
+  
+  // Set MQTT origin to actual device name (not build-time ADVERT_NAME) - same as repeater
+  StrHelper::strncpy(_prefs.mqtt_origin, _prefs.node_name, sizeof(_prefs.mqtt_origin));
+  MESH_DEBUG_PRINTLN("MQTT origin set to device name: %s", _prefs.mqtt_origin);
+
+  if (_prefs.bridge_enabled) {
+    // Set device public key for MQTT topics (same as repeater)
+    char device_id[65];
+    mesh::LocalIdentity self_id = getSelfId();
+    mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
+    MESH_DEBUG_PRINTLN("Setting device ID: %s", device_id);
+    bridge.setDeviceID(device_id);
+    
+    // Set firmware version (same as repeater)
+    bridge.setFirmwareVersion(getFirmwareVer());
+    
+    // Set board model (same as repeater)
+    bridge.setBoardModel(_cli.getBoard()->getManufacturerName());
+    
+    // Set build date (same as repeater)
+    bridge.setBuildDate(getBuildDate());
+    
+    // Set stats sources for automatic stats collection (same as repeater)
+    bridge.setStatsSources(this, _radio, _cli.getBoard(), _ms);
+    
+    bridge.begin();
+  }
 #endif
 }
 
@@ -679,7 +769,7 @@ void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
   mesh::Packet *pkt = createSelfAdvert();
   if (pkt) {
     if (flood) {
-      sendFlood(pkt, delay_millis);
+      sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);
     } else {
       sendZeroHop(pkt, delay_millis);
     }
@@ -690,7 +780,7 @@ void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
 
 void MyMesh::updateAdvertTimer() {
   if (_prefs.advert_interval > 0) { // schedule local advert timer
-    next_local_advert = futureMillis((uint32_t)_prefs.advert_interval * 2 * 60 * 1000);
+    next_local_advert = futureMillis((int)((uint32_t)_prefs.advert_interval * 2 * 60 * 1000));
   } else {
     next_local_advert = 0; // stop the timer
   }
@@ -809,7 +899,12 @@ bool MyMesh::saveFilter(ClientInfo* client) {
 }
 
 void MyMesh::loop() {
+  // Check radio FIRST to ensure we don't miss incoming packets
+  // MQTT processing can take time, so we prioritize radio reception
   mesh::Mesh::loop();
+#ifdef WITH_MQTT_BRIDGE
+  // bridge.loop() is now handled by FreeRTOS task on Core 0 - no need to call it here
+#endif
 
   if (millisHasNowPassed(next_push) && acl.getNumClients() > 0) {
     // check for ACK timeouts

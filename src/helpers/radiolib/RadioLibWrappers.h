@@ -45,7 +45,7 @@ public:
   void loop() override;
 
   uint32_t getPacketsRecv() const { return n_recv; }
-  uint32_t getPacketsRecvErrors() const { return n_recv_errors; }
+  uint32_t getPacketsRecvErrors() const override { return n_recv_errors; }
   uint32_t getPacketsSent() const { return n_sent; }
   void resetStats() { n_recv = n_sent = n_recv_errors = 0; }
 

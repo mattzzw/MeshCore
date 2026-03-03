@@ -76,6 +76,11 @@ public:
 
   virtual float getLastRSSI() const { return 0; }
   virtual float getLastSNR() const { return 0; }
+
+  /**
+   * \returns  number of receive errors (e.g. CRC failures) since last reset; 0 if not tracked.
+  */
+  virtual uint32_t getPacketsRecvErrors() const { return 0; }
 };
 
 /**
@@ -174,6 +179,7 @@ public:
   uint32_t getNumSentDirect() const { return n_sent_direct; }
   uint32_t getNumRecvFlood() const { return n_recv_flood; }
   uint32_t getNumRecvDirect() const { return n_recv_direct; }
+  uint16_t getErrFlags() const { return _err_flags; }  // Get error flags
   void resetStats() {
     n_sent_flood = n_sent_direct = n_recv_flood = n_recv_direct = 0;
     _err_flags = 0;
@@ -184,6 +190,7 @@ public:
   unsigned long futureMillis(int millis_from_now) const;
 
 private:
+  bool tryParsePacket(Packet* pkt, const uint8_t* raw, int len);
   void checkRecv();
   void checkSend();
 };
