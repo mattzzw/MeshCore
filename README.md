@@ -6,7 +6,6 @@ Its aim is to provide repeater firmwares with a few additional pending upstream 
 These changes are intended to help mitigating challenges in big or dense meshes, e.g.:
 
 - Dealing with flood advert traffic
-- fixing TX duty cycle on a rolling window basis
 - improving `denyf *` handling
 
 This list might change any time.
