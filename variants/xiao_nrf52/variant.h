@@ -77,7 +77,7 @@ static const uint8_t D10 = 10;
 
 // Power management boot protection threshold (millivolts)
 // Set to 0 to disable boot protection
-#define PWRMGT_VOLTAGE_BOOTLOCK    3300   // Won't boot below this voltage
+#define PWRMGT_VOLTAGE_BOOTLOCK    0   // Won't boot below this voltage
 
 // LPCOMP wake configuration (voltage recovery from SYSTEMOFF)
 #define PWRMGT_LPCOMP_AIN           7     // AIN7 = P0.31 = PIN_VBAT
