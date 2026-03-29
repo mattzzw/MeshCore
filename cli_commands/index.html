@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -1326,17 +1326,6 @@
     <span class="md-ellipsis">
       
         View or change the bridge enabled flag
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#view-the-bridge-source" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        View the bridge source
       
     </span>
   </a>
@@ -2788,17 +2777,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#view-the-bridge-source" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        View the bridge source
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#add-a-delay-to-packets-routed-through-this-bridge" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3264,7 +3242,12 @@
 - <code>get af</code>
 - <code>set af &lt;value&gt;</code></p>
 <p><strong>Parameters:</strong>
-- <code>value</code>: Airtime factor (0-9)</p>
+- <code>value</code>: Airtime factor (0-9). After each transmission, the repeater enforces a silent period of approximately the on-air transmission time multiplied by the value. This results in a long-term duty cycle of roughly 1 divided by (1 plus the value). For example:
+  - <code>af = 1</code> → ~50% duty
+  - <code>af = 2</code> → ~33% duty
+  - <code>af = 3</code> → ~25% duty
+  - <code>af = 9</code> → ~10% duty<br />
+  Yyou are responsible for choosing a value that is appropriate for your jurisdiction and channel plan (for example EU 868 Mhz 10% duty cycle regulation).</p>
 <p><strong>Default:</strong> <code>1.0</code></p>
 <hr />
 <h4 id="view-or-change-the-local-interference-threshold">View or change the local interference threshold</h4>
@@ -3534,10 +3517,6 @@ region save
 <p><strong>Parameters:</strong>
 - <code>state</code>: <code>on</code>|<code>off</code></p>
 <p><strong>Default:</strong> <code>off</code></p>
-<hr />
-<h4 id="view-the-bridge-source">View the bridge source</h4>
-<p><strong>Usage:</strong>
-- <code>get bridge.source</code></p>
 <hr />
 <h4 id="add-a-delay-to-packets-routed-through-this-bridge">Add a delay to packets routed through this bridge</h4>
 <p><strong>Usage:</strong>
